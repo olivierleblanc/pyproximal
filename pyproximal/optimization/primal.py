@@ -104,7 +104,7 @@ def ProximalGradient(proxf, proxg, x0, tau=None, beta=0.5,
                      epsg=1., niter=10, niterback=100,
                      acceleration=None,
                      callback=None, show=False):
-    r"""Proximal gradient (optionnally accelerated)
+    r"""Proximal gradient (optionally accelerated)
 
     Solves the following minimization problem using (Accelerated) Proximal
     gradient algorithm:
@@ -140,7 +140,7 @@ def ProximalGradient(proxf, proxg, x0, tau=None, beta=0.5,
         Number of iterations of iterative scheme
     niterback : :obj:`int`, optional
         Max number of iterations of backtracking
-    acceleration:  :obj:`str`, optional
+    acceleration : :obj:`str`, optional
         Acceleration (``None``, ``vandenberghe`` or ``fista``)
     callback : :obj:`callable`, optional
         Function with signature (``callback(x)``) to call after each iteration
@@ -155,15 +155,15 @@ def ProximalGradient(proxf, proxg, x0, tau=None, beta=0.5,
 
     Notes
     -----
-    The (Accelerated) Proximal point algorithm can be expressed by the
-    following recursion:
+    The Proximal point algorithm can be expressed by the following recursion:
 
     .. math::
 
-        \mathbf{y}^{k+1} = \mathbf{x}^k + \omega^k
-        (\mathbf{x}^k - \mathbf{x}^{k-1})
+
         \mathbf{x}^{k+1} = \prox_{\tau^k \epsilon g}(\mathbf{y}^{k+1}  -
         \tau^k \nabla f(\mathbf{y}^{k+1})) \\
+        \mathbf{y}^{k+1} = \mathbf{x}^k + \omega^k
+        (\mathbf{x}^k - \mathbf{x}^{k-1})
 
     where at each iteration :math:`\tau^k` can be estimated by back-tracking
     as follows:
@@ -180,12 +180,14 @@ def ProximalGradient(proxf, proxg, x0, tau=None, beta=0.5,
 
     where :math:`\tilde{f}_\tau(\mathbf{x}, \mathbf{y}) = f(\mathbf{y}) +
     \nabla f(\mathbf{y})^T (\mathbf{x} - \mathbf{y}) +
-    1/(2\tau)||\mathbf{x} - \mathbf{y}||_2^2`,
-    and
-    :math:`\omega^k = 0` for ``acceleration=None``,
-    :math:`\omega^k = k / (k + 3)` for ``acceleration=vandenberghe`` [1]_
-    or :math:`\omega^k = (t_{k-1}-1)/t_k` for ``acceleration=fista`` where
-    :math:`t_k = (1 + \sqrt{1+4t_{k-1}^{2}}) / 2` [2]_
+    1/(2\tau)||\mathbf{x} - \mathbf{y}||_2^2`.
+
+    Different accelerations are provided:
+
+    - ``acceleration=None``: :math:`\omega^k = 0`;
+    - `acceleration=vandenberghe`` [1]_: :math:`\omega^k = k / (k + 3)` for `
+    - ``acceleration=fista``: :math:`\omega^k = (t_{k-1}-1)/t_k` for  where
+      :math:`t_k = (1 + \sqrt{1+4t_{k-1}^{2}}) / 2` [2]_
 
     .. [1] Vandenberghe, L., "Fast proximal gradient methods", 2010.
     .. [2] Beck, A., and Teboulle, M. "A Fast Iterative Shrinkage-Thresholding
@@ -208,10 +210,10 @@ def ProximalGradient(proxf, proxg, x0, tau=None, beta=0.5,
               '---------------------------------------------------------\n'
               'Proximal operator (f): %s\n'
               'Proximal operator (g): %s\n'
-              'tau = %10e\tbeta=%10e\n'
+              'tau = %s\tbeta=%10e\n'
               'epsg = %s\tniter = %d\t'
               'niterback = %d\n' % (type(proxf), type(proxg),
-                                    0 if tau is None else tau, beta,
+                                    'Adaptive' if tau is None else str(tau), beta,
                                     epsg_print, niter, niterback))
         head = '   Itn       x[0]          f           g       J=f+eps*g'
         print(head)
@@ -387,7 +389,7 @@ def GeneralizedProximalGradient(proxfs, proxgs, x0, tau=None,
         # proximal step
         grad = np.zeros_like(x)
         for i, proxf in enumerate(proxfs):
-            grad += proxf.grad(x)
+            grad += np.real(proxf.grad(x)) # Cast to real!
 
         sol = np.zeros_like(x)
         for i, proxg in enumerate(proxgs):
@@ -427,7 +429,7 @@ def GeneralizedProximalGradient(proxfs, proxgs, x0, tau=None,
     return x
 
 
-def HQS(proxf, proxg, x0, tau, niter=10, gfirst=True,
+def HQS(proxf, proxg, x0, tau, niter=10, z0=None, gfirst=True,
         callback=None, callbackz=False, show=False):
     r"""Half Quadratic splitting
 
@@ -451,12 +453,17 @@ def HQS(proxf, proxg, x0, tau, niter=10, gfirst=True,
         Proximal operator of g function
     x0 : :obj:`numpy.ndarray`
         Initial vector
-    tau : :obj:`float`, optional
+    tau : :obj:`float` or :obj:`numpy.ndarray`, optional
         Positive scalar weight, which should satisfy the following condition
         to guarantees convergence: :math:`\tau  \in (0, 1/L]` where ``L`` is
-        the Lipschitz constant of :math:`\nabla f`.
+        the Lipschitz constant of :math:`\nabla f`. Finally note that
+        :math:`\tau` can be chosen to be a vector of size ``niter`` such that
+        different :math:`\tau` is used at different iterations (i.e., continuation
+        strategy)
     niter : :obj:`int`, optional
         Number of iterations of iterative scheme
+    z0 : :obj:`numpy.ndarray`, optional
+        Initial z vector (not required when ``gfirst=True``
     gfirst : :obj:`bool`, optional
         Apply Proximal of operator ``g`` first (``True``) or Proximal of
         operator ``f`` first (``False``)
@@ -481,39 +488,56 @@ def HQS(proxf, proxg, x0, tau, niter=10, gfirst=True,
 
     .. math::
 
-        \mathbf{z}^{k+1} = \prox_{\tau g}(\mathbf{x}^{k})
-        \mathbf{x}^{k+1} = \prox_{\tau f}(\mathbf{z}^{k+1})\\
+        \mathbf{z}^{k+1} = \prox_{\tau g}(\mathbf{x}^{k}) \\
+        \mathbf{x}^{k+1} = \prox_{\tau f}(\mathbf{z}^{k+1})
 
-    Note that ``x`` and ``z`` converge to each other, however if iterations are
-    stopped too early ``x`` is guaranteed to belong to the domain of ``f``
-    while ``z`` is guaranteed to belong to the domain of ``g``. Depending on
-    the problem either of the two may be the best solution.
+    for ``gfirst=False``, or
+
+    .. math::
+
+        \mathbf{x}^{k+1} = \prox_{\tau f}(\mathbf{z}^{k}) \\
+        \mathbf{z}^{k+1} = \prox_{\tau g}(\mathbf{x}^{k+1})
+
+    for ``gfirst=False``. Note that ``x`` and ``z`` converge to each other,
+    however if iterations are stopped too early ``x`` is guaranteed to belong to
+    the domain of ``f`` while ``z`` is guaranteed to belong to the domain of ``g``.
+    Depending on the problem either of the two may be the best solution.
 
     .. [1] D., Geman, and C., Yang, "Nonlinear image recovery with halfquadratic
          regularization", IEEE Transactions on Image Processing,
          4, 7, pp. 932-946, 1995.
 
     """
+    # check if epgs is a ve
+    if np.asarray(tau).size == 1.:
+        tau_print = str(tau)
+        tau = tau * np.ones(niter)
+    else:
+        tau_print = 'Variable'
+
     if show:
         tstart = time.time()
         print('HQS\n'
               '---------------------------------------------------------\n'
               'Proximal operator (f): %s\n'
               'Proximal operator (g): %s\n'
-              'tau = %10e\tniter = %d\n' % (type(proxf), type(proxg),
-                                            tau, niter))
+              'tau = %s\tniter = %d\n' % (type(proxf), type(proxg),
+                                          tau_print, niter))
         head = '   Itn       x[0]          f           g       J = f + g'
         print(head)
 
     x = x0.copy()
-    z = np.zeros_like(x)
+    if z0 is not None:
+        z = z0.copy()
+    else:
+        z = np.zeros_like(x)
     for iiter in range(niter):
         if gfirst:
-            z = proxg.prox(x, tau)
-            x = proxf.prox(z, tau)
+            z = proxg.prox(x, tau[iiter])
+            x = proxf.prox(z, tau[iiter])
         else:
-            x = proxf.prox(z, tau)
-            z = proxg.prox(x, tau)
+            x = proxf.prox(z, tau[iiter])
+            z = proxg.prox(x, tau[iiter])
 
         # run callback
         if callback is not None:
